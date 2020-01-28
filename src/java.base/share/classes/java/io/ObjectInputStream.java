@@ -31,6 +31,7 @@ import java.lang.System.Logger;
 import java.lang.invoke.MethodHandle;
 import java.lang.ref.ReferenceQueue;
 import java.lang.reflect.Array;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
 import java.security.AccessControlContext;
@@ -496,7 +497,7 @@ public class ObjectInputStream
         // if nested read, passHandle contains handle of enclosing object
         int outerHandle = passHandle;
         try {
-            Object obj = readObject0(type, false);
+            Object obj = readObject0(type, false, false);
             handles.markDependency(outerHandle, passHandle);
             ClassNotFoundException ex = handles.lookupException(passHandle);
             if (ex != null) {
@@ -591,7 +592,7 @@ public class ObjectInputStream
         // if nested read, passHandle contains handle of enclosing object
         int outerHandle = passHandle;
         try {
-            Object obj = readObject0(Object.class, true);
+            Object obj = readObject0(Object.class, true, false);
             handles.markDependency(outerHandle, passHandle);
             ClassNotFoundException ex = handles.lookupException(passHandle);
             if (ex != null) {
@@ -639,7 +640,7 @@ public class ObjectInputStream
             throw new ClassCastException();
         }
         // Read fields of the current descriptor into a new FieldValues
-        FieldValues vals = new FieldValues(curDesc, true);
+        FieldValues vals = new FieldValues(curDesc, true, false);
         if (curObj != null) {
             vals.defaultCheckFieldValues(curObj);
             vals.defaultSetFieldValues(curObj);
@@ -683,7 +684,7 @@ public class ObjectInputStream
         ObjectStreamClass curDesc = ctx.getDesc();
         bin.setBlockDataMode(false);
         // Read fields of the current descriptor into a new FieldValues
-        FieldValues getField = new FieldValues(curDesc, false);
+        FieldValues getField = new FieldValues(curDesc, false, true);
         bin.setBlockDataMode(true);
         if (!curDesc.hasWriteObjectData()) {
             /*
@@ -1620,8 +1621,11 @@ public class ObjectInputStream
      * Underlying readObject implementation.
      * @param type a type expected to be deserialized; non-null
      * @param unshared true if the object can not be a reference to a shared object, otherwise false
+     * @param delayBind if the fields are to be read but not set in an object
+     * @return an Object or an array of slot values if delayBind == true
+     * @throws IOException
      */
-    private Object readObject0(Class<?> type, boolean unshared) throws IOException {
+    private Object readObject0(Class<?> type, boolean unshared, boolean delayBind) throws IOException {
         boolean oldMode = bin.getBlockDataMode();
         if (oldMode) {
             int remain = bin.currentBlockRemaining();
@@ -1654,7 +1658,7 @@ public class ObjectInputStream
 
                 case TC_REFERENCE:
                     // check the type of the existing object
-                    return type.cast(readHandle(unshared));
+                    return type.cast(readHandle(unshared, delayBind));
 
                 case TC_CLASS:
                     if (type == String.class) {
@@ -1667,7 +1671,7 @@ public class ObjectInputStream
                     if (type == String.class) {
                         throw new ClassCastException("Cannot cast a class to java.lang.String");
                     }
-                    return readClassDesc(unshared);
+                    return readClassDesc(unshared, delayBind);
 
                 case TC_STRING:
                 case TC_LONGSTRING:
@@ -1677,19 +1681,19 @@ public class ObjectInputStream
                     if (type == String.class) {
                         throw new ClassCastException("Cannot cast an array to java.lang.String");
                     }
-                    return checkResolve(readArray(unshared));
+                    return checkResolve(readArray(unshared, delayBind));
 
                 case TC_ENUM:
                     if (type == String.class) {
                         throw new ClassCastException("Cannot cast an enum to java.lang.String");
                     }
-                    return checkResolve(readEnum(unshared));
+                    return checkResolve(readEnum(unshared, delayBind));
 
                 case TC_OBJECT:
                     if (type == String.class) {
                         throw new ClassCastException("Cannot cast an object to java.lang.String");
                     }
-                    return checkResolve(readOrdinaryObject(unshared));
+                    return checkResolve(readOrdinaryObject(unshared, delayBind));
 
                 case TC_EXCEPTION:
                     if (type == String.class) {
@@ -1769,7 +1773,7 @@ public class ObjectInputStream
                     return (String) readNull();
 
                 case TC_REFERENCE:
-                    return (String) readHandle(false);
+                    return (String) readHandle(false, false);
 
                 case TC_STRING:
                 case TC_LONGSTRING:
@@ -1799,7 +1803,7 @@ public class ObjectInputStream
      * Reads in object handle, sets passHandle to the read handle, and returns
      * object associated with the handle.
      */
-    private Object readHandle(boolean unshared) throws IOException {
+    private Object readHandle(boolean unshared, boolean delayBind) throws IOException {
         if (bin.readByte() != TC_REFERENCE) {
             throw new InternalError();
         }
@@ -1821,6 +1825,12 @@ public class ObjectInputStream
             throw new InvalidObjectException(
                 "cannot read back reference to unshared object");
         }
+        if (obj != null) {
+            if (obj instanceof LazyReadObject) {
+                obj = ((LazyReadObject)obj).resolve();
+                handles.setObject(passHandle, obj);
+            }
+        }
         filterCheck(null, -1);       // just a check for number of references, depth, no class
         return obj;
     }
@@ -1835,7 +1845,7 @@ public class ObjectInputStream
         if (bin.readByte() != TC_CLASS) {
             throw new InternalError();
         }
-        ObjectStreamClass desc = readClassDesc(false);
+        ObjectStreamClass desc = readClassDesc(false, false);
         Class<?> cl = desc.forClass();
         passHandle = handles.assign(unshared ? unsharedMarker : cl);
 
@@ -1854,7 +1864,7 @@ public class ObjectInputStream
      * resolved to a class in the local VM, a ClassNotFoundException is
      * associated with the class descriptor's handle.
      */
-    private ObjectStreamClass readClassDesc(boolean unshared)
+    private ObjectStreamClass readClassDesc(boolean unshared, boolean delayBind)
         throws IOException
     {
         byte tc = bin.peekByte();
@@ -1864,7 +1874,7 @@ public class ObjectInputStream
                 descriptor = (ObjectStreamClass) readNull();
                 break;
             case TC_REFERENCE:
-                descriptor = (ObjectStreamClass) readHandle(unshared);
+                descriptor = (ObjectStreamClass) readHandle(unshared, false);
                 // Should only reference initialized class descriptors
                 descriptor.checkInitialized();
                 break;
@@ -1872,7 +1882,7 @@ public class ObjectInputStream
                 descriptor = readProxyDesc(unshared);
                 break;
             case TC_CLASSDESC:
-                descriptor = readNonProxyDesc(unshared);
+                descriptor = readNonProxyDesc(unshared, delayBind);
                 break;
             default:
                 throw new StreamCorruptedException(
@@ -1941,12 +1951,12 @@ public class ObjectInputStream
         // Call filterCheck on the class before reading anything else
         filterCheck(cl, -1);
 
-        skipCustomData();
+        skipCustomData(false);
 
         try {
             totalObjectRefs++;
             depth++;
-            desc.initProxy(cl, resolveEx, readClassDesc(false));
+            desc.initProxy(cl, resolveEx, readClassDesc(false, false));
         } finally {
             depth--;
         }
@@ -1962,7 +1972,7 @@ public class ObjectInputStream
      * class descriptor cannot be resolved to a class in the local VM, a
      * ClassNotFoundException is associated with the descriptor's handle.
      */
-    private ObjectStreamClass readNonProxyDesc(boolean unshared)
+    private ObjectStreamClass readNonProxyDesc(boolean unshared, boolean delayBind)
         throws IOException
     {
         if (bin.readByte() != TC_CLASSDESC) {
@@ -1993,17 +2003,19 @@ public class ObjectInputStream
             }
         } catch (ClassNotFoundException ex) {
             resolveEx = ex;
+            System.out.println("resolveEx: " + ex);
         }
 
         // Call filterCheck on the class before reading anything else
         filterCheck(cl, -1);
 
-        skipCustomData();
+        skipCustomData(false);
 
         try {
             totalObjectRefs++;
             depth++;
-            desc.initNonProxy(readDesc, cl, resolveEx, readClassDesc(false));
+            System.out.println("initNonProxy: " + cl);
+            desc.initNonProxy(readDesc, cl, resolveEx, readClassDesc(false, delayBind));
         } finally {
             depth--;
         }
@@ -2043,12 +2055,12 @@ public class ObjectInputStream
      * Reads in and returns array object, or null if array class is
      * unresolvable.  Sets passHandle to array's assigned handle.
      */
-    private Object readArray(boolean unshared) throws IOException {
+    private Object readArray(boolean unshared, boolean delayBind) throws IOException {
         if (bin.readByte() != TC_ARRAY) {
             throw new InternalError();
         }
 
-        ObjectStreamClass desc = readClassDesc(false);
+        ObjectStreamClass desc = readClassDesc(false, delayBind);
         int len = bin.readInt();
 
         filterCheck(desc.forClass(), len);
@@ -2068,7 +2080,7 @@ public class ObjectInputStream
 
         if (ccl == null) {
             for (int i = 0; i < len; i++) {
-                readObject0(Object.class, false);
+                readObject0(Object.class, false, delayBind);
             }
         } else if (ccl.isPrimitive()) {
             if (ccl == Integer.TYPE) {
@@ -2093,7 +2105,7 @@ public class ObjectInputStream
         } else {
             Object[] oa = (Object[]) array;
             for (int i = 0; i < len; i++) {
-                oa[i] = readObject0(Object.class, false);
+                oa[i] = readObject0(Object.class, false, delayBind);
                 handles.markDependency(arrayHandle, passHandle);
             }
         }
@@ -2107,12 +2119,12 @@ public class ObjectInputStream
      * Reads in and returns enum constant, or null if enum type is
      * unresolvable.  Sets passHandle to enum constant's assigned handle.
      */
-    private Enum<?> readEnum(boolean unshared) throws IOException {
+    private Enum<?> readEnum(boolean unshared, boolean delayBind) throws IOException {
         if (bin.readByte() != TC_ENUM) {
             throw new InternalError();
         }
 
-        ObjectStreamClass desc = readClassDesc(false);
+        ObjectStreamClass desc = readClassDesc(false, delayBind);
         if (!desc.isEnum()) {
             throw new InvalidClassException("non-enum class: " + desc);
         }
@@ -2153,14 +2165,14 @@ public class ObjectInputStream
      * associated with object's handle).  Sets passHandle to object's assigned
      * handle.
      */
-    private Object readOrdinaryObject(boolean unshared)
+    private Object readOrdinaryObject(boolean unshared, boolean delayBind)
         throws IOException
     {
         if (bin.readByte() != TC_OBJECT) {
             throw new InternalError();
         }
 
-        ObjectStreamClass desc = readClassDesc(false);
+        ObjectStreamClass desc = readClassDesc(false, delayBind);
         desc.checkDeserialize();
 
         Class<?> cl = desc.forClass();
@@ -2171,7 +2183,16 @@ public class ObjectInputStream
 
         Object obj;
         try {
-            obj = desc.isInstantiable() ? desc.newInstance() : null;
+            // Create the instance only if not delayed and it can be created
+            obj = !delayBind && desc.isInstantiable() ? desc.newInstance() : null;
+            if (obj == null) {
+                if (Logging.filterLogger != null) {
+                    // Debug logging of filter checks that fail; Tracing for those that succeed
+                    Logging.filterLogger.log(Logger.Level.TRACE,
+                            "Delaying creation of {0}, delayBind: {1}",
+                            desc.getName(), delayBind);
+                }
+            }
         } catch (Exception ex) {
             throw (IOException) new InvalidClassException(
                 desc.forClass().getName(),
@@ -2184,6 +2205,8 @@ public class ObjectInputStream
             handles.markException(passHandle, resolveEx);
         }
 
+        delayBind = (obj == null);
+
         final boolean isRecord = desc.isRecord();
         if (isRecord) {
             assert obj == null;
@@ -2191,9 +2214,9 @@ public class ObjectInputStream
             if (!unshared)
                 handles.setObject(passHandle, obj);
         } else if (desc.isExternalizable()) {
-            readExternalData((Externalizable) obj, desc);
+            readExternalData((Externalizable) obj, desc, delayBind);
         } else {
-            readSerialData(obj, desc);
+            readSerialData(obj, desc, delayBind);
         }
 
         handles.finish(passHandle);
@@ -2228,7 +2251,8 @@ public class ObjectInputStream
      * Expects that passHandle is set to obj's handle before this method is
      * called.
      */
-    private void readExternalData(Externalizable obj, ObjectStreamClass desc)
+    private void readExternalData(Externalizable obj, ObjectStreamClass desc,
+                                  boolean delayBind)
         throws IOException
     {
         SerialCallbackContext oldContext = curContext;
@@ -2255,7 +2279,7 @@ public class ObjectInputStream
                 }
             }
             if (blocked) {
-                skipCustomData();
+                skipCustomData(delayBind);
             }
         } finally {
             if (oldContext != null)
@@ -2282,11 +2306,11 @@ public class ObjectInputStream
         if (slots.length != 1) {
             // skip any superclass stream field values
             for (int i = 0; i < slots.length-1; i++) {
-                new FieldValues(slots[i].desc, true);
+                new FieldValues(slots[i].desc, true, false);
             }
         }
 
-        FieldValues fieldValues = new FieldValues(desc, true);
+        FieldValues fieldValues = new FieldValues(desc, true, false);
 
         // get canonical record constructor adapted to take two arguments:
         // - byte[] primValues
@@ -2316,7 +2340,8 @@ public class ObjectInputStream
      * object in stream, from superclass to subclass.  Expects that passHandle
      * is set to obj's handle before this method is called.
      */
-    private void readSerialData(Object obj, ObjectStreamClass desc)
+    private void readSerialData(Object obj,
+                                ObjectStreamClass desc, boolean delayBind)
         throws IOException
     {
         ObjectStreamClass.ClassDataSlot[] slots = desc.getClassDataLayout();
@@ -2344,9 +2369,12 @@ public class ObjectInputStream
             ObjectStreamClass slotDesc = slots[i].desc;
 
             if (slots[i].hasData) {
-                if (obj == null || handles.lookupException(passHandle) != null) {
+                if (delayBind || obj == null || handles.lookupException(passHandle) != null) {
                     // Read fields of the current descriptor into a new FieldValues and discard
-                    new FieldValues(slotDesc, true);
+                    FieldValues vals = new FieldValues(slotDesc, true, true);
+                    if (slotValues != null) {
+                        slotValues[i] = vals;
+                    }
                 } else if (slotDesc.hasReadObjectMethod()) {
                     ThreadDeath t = null;
                     boolean reset = false;
@@ -2391,7 +2419,7 @@ public class ObjectInputStream
                     defaultDataEnd = false;
                 } else {
                     // Read fields of the current descriptor into a new FieldValues
-                    FieldValues vals = new FieldValues(slotDesc, true);
+                    FieldValues vals = new FieldValues(slotDesc, true, delayBind);
                     if (slotValues != null) {
                         slotValues[i] = vals;
                     } else if (obj != null) {
@@ -2405,7 +2433,7 @@ public class ObjectInputStream
                 }
 
                 if (slotDesc.hasWriteObjectData()) {
-                    skipCustomData();
+                    skipCustomData(delayBind);
                 } else {
                     bin.setBlockDataMode(false);
                 }
@@ -2419,25 +2447,50 @@ public class ObjectInputStream
             }
         }
 
-        if (obj != null && slotValues != null) {
-            // Check that the non-primitive types are assignable for all slots
-            // before assigning.
-            for (int i = 0; i < slots.length; i++) {
-                if (slotValues[i] != null)
-                    slotValues[i].defaultCheckFieldValues(obj);
+        if (slotValues != null) {
+            // deferred assignment
+            if (obj != null && !delayBind) {
+                assignObjValues(obj, desc, slotValues);
+            } else {
+                // Save the values until/if we need them
+                assert slotValues.length > 0 : "SlotValues must have at least 1 entry";
+                assert desc == slotValues[slotValues.length - 1].desc : "Last slot value must be instance desc";
+                handles.setObject(passHandle, new LazyReadObject(slotValues));
             }
-            for (int i = 0; i < slots.length; i++) {
-                if (slotValues[i] != null)
-                    slotValues[i].defaultSetFieldValues(obj);
-            }
+        }
+    }
+
+    /**
+     * Set the fields of the object to the slotValues, iff they all are assignable.
+     * @param obj the instance
+     * @param desc the class descriptor
+     * @param slotValues array of slot values
+     * @throws IOException if an error
+     */
+    private static void assignObjValues(Object obj, ObjectStreamClass desc, FieldValues[] slotValues)
+            throws InvalidClassException {
+        assert slotValues.length > 0 : "SlotValues must have at least 1 entry";
+        assert desc == slotValues[slotValues.length - 1].desc : "Last slot value must be instance desc";
+
+        ObjectStreamClass.ClassDataSlot[] slots = desc.getClassDataLayout();
+        // Check that the non-primitive types are assignable for all slots
+        // before assigning.
+        for (int i = 0; i < slots.length; i++) {
+            if (slotValues[i] != null)
+                slotValues[i].defaultCheckFieldValues(obj);
+        }
+        for (int i = 0; i < slots.length; i++) {
+            if (slotValues[i] != null)
+                slotValues[i].defaultSetFieldValues(obj);
         }
     }
 
     /**
      * Skips over all block data and objects until TC_ENDBLOCKDATA is
      * encountered.
+     * @param delayBind
      */
-    private void skipCustomData() throws IOException {
+    private void skipCustomData(boolean delayBind) throws IOException {
         int oldHandle = passHandle;
         for (;;) {
             if (bin.getBlockDataMode()) {
@@ -2456,7 +2509,7 @@ public class ObjectInputStream
                     return;
 
                 default:
-                    readObject0(Object.class, false);
+                    readObject0(Object.class, false, delayBind);
                     break;
             }
         }
@@ -2472,7 +2525,7 @@ public class ObjectInputStream
             throw new InternalError();
         }
         clear();
-        return (IOException) readObject0(Object.class, false);
+        return (IOException) readObject0(Object.class, false, false);
     }
 
     /**
@@ -2520,7 +2573,8 @@ public class ObjectInputStream
          * @param recordDependencies if true, record the dependencies
          *                           from current PassHandle and the object's read.
          */
-        FieldValues(ObjectStreamClass desc, boolean recordDependencies) throws IOException {
+        FieldValues(ObjectStreamClass desc, boolean recordDependencies,
+                    boolean delayBind) throws IOException {
             this.desc = desc;
             primValues = new byte[desc.getPrimDataSize()];
             objValues = new Object[desc.getNumObjFields()];
@@ -2535,9 +2589,10 @@ public class ObjectInputStream
                 int numPrimFields = fields.length - objValues.length;
                 for (int i = 0; i < objValues.length; i++) {
                     ObjectStreamField f = fields[numPrimFields + i];
-                    objValues[i] = readObject0(f.getType(), f.isUnshared());
+                    objValues[i] = readObject0(f.getType(), f.isUnshared(),
+                            f.getField() == null || delayBind);
                     objHandles[i] = passHandle;
-                    if (recordDependencies && f.getType() != null) {
+                    if (recordDependencies && f.getField() != null) {
                         handles.markDependency(objHandle, passHandle);
                     }
                 }
@@ -2612,6 +2667,10 @@ public class ObjectInputStream
         }
 
         private void defaultSetFieldValues(Object obj) {
+            System.out.printf("defaultSetFieldValues: %s, prim size: %s, obj values: %s%n",
+                    obj.getClass().getName(), primValues != null ? primValues.length : "noprim",
+                    objValues != null ? Arrays.toString(objValues) : "noobj");
+
             if (primValues != null)
                 desc.setPrimFieldValues(obj, primValues);
             if (objValues != null)
@@ -2639,6 +2698,51 @@ public class ObjectInputStream
             }
         }
     }
+
+    private static class LazyReadObject {
+        private final FieldValues[] fieldValues;
+        private Object resolvedObject;
+        private static final Object unresolved = new Object();
+
+        LazyReadObject(FieldValues[] values) {
+            this.fieldValues = Objects.requireNonNull(values);
+            this.resolvedObject = unresolved;
+        }
+
+        Object resolve() throws InvalidClassException {
+            if (resolvedObject == unresolved) {
+                Object o = makeObjFromFieldValues(fieldValues);
+                resolvedObject = o;
+                return o;
+            }
+            return resolvedObject;
+        }
+        /**
+         * Create and initialize an instance from an array of FieldValues.
+         * The type is from the last descriptor.
+         * @param fieldValues an array of FieldValues for each class of the type
+         * @return an instance of the class of the descriptor of the last value.
+         * @throws InvalidClassException if there is a circular reference
+         */
+        private Object makeObjFromFieldValues(FieldValues[] fieldValues) throws InvalidClassException {
+            assert fieldValues.length > 0 : "SlotValues must have at least 1 entry";
+            ObjectStreamClass desc = fieldValues[fieldValues.length - 1].desc;
+
+            if (Logging.filterLogger != null) {
+                Logging.filterLogger.log(Logger.Level.TRACE,
+                        "Delayed create of: {0}", desc.getName());
+            }
+
+            try {
+                Object obj = desc.newInstance();
+                assignObjValues(obj, desc, fieldValues);
+                return obj;
+            } catch (InvocationTargetException | InstantiationException e) {
+                // TBD don't get this far if the class isn't instantiable
+                throw new AssertionError("unable to create: " + desc.getName());
+            }
+        }
+    };
 
     /**
      * Prioritized list of callbacks to be performed once object graph has been
