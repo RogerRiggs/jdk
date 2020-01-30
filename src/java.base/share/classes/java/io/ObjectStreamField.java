@@ -39,7 +39,7 @@ import sun.reflect.misc.ReflectUtil;
  * @see ObjectStreamClass
  * @since 1.2
  */
-public class ObjectStreamField
+public final class ObjectStreamField
     implements Comparable<Object>
 {
 

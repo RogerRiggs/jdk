@@ -2014,7 +2014,7 @@ public class ObjectInputStream
         try {
             totalObjectRefs++;
             depth++;
-            System.out.println("initNonProxy: " + cl);
+//            System.out.println("initNonProxy: " + cl);
             desc.initNonProxy(readDesc, cl, resolveEx, readClassDesc(false, delayBind));
         } finally {
             depth--;
@@ -2189,8 +2189,8 @@ public class ObjectInputStream
                 if (Logging.filterLogger != null) {
                     // Debug logging of filter checks that fail; Tracing for those that succeed
                     Logging.filterLogger.log(Logger.Level.TRACE,
-                            "Delaying creation of {0}, delayBind: {1}",
-                            desc.getName(), delayBind);
+                            "Delaying creation of {0}, delayBind: {1}, isInst: {2}",
+                            desc.getName(), delayBind, desc.isInstantiable());
                 }
             }
         } catch (Exception ex) {
@@ -2216,7 +2216,7 @@ public class ObjectInputStream
         } else if (desc.isExternalizable()) {
             readExternalData((Externalizable) obj, desc, delayBind);
         } else {
-            readSerialData(obj, desc, delayBind);
+            obj = readSerialData(obj, desc, delayBind);
         }
 
         handles.finish(passHandle);
@@ -2340,7 +2340,7 @@ public class ObjectInputStream
      * object in stream, from superclass to subclass.  Expects that passHandle
      * is set to obj's handle before this method is called.
      */
-    private void readSerialData(Object obj,
+    private Object readSerialData(Object obj,
                                 ObjectStreamClass desc, boolean delayBind)
         throws IOException
     {
@@ -2370,7 +2370,7 @@ public class ObjectInputStream
 
             if (slots[i].hasData) {
                 if (delayBind || obj == null || handles.lookupException(passHandle) != null) {
-                    // Read fields of the current descriptor into a new FieldValues and discard
+                    // Read fields of the current descriptor into a new FieldValues
                     FieldValues vals = new FieldValues(slotDesc, true, true);
                     if (slotValues != null) {
                         slotValues[i] = vals;
@@ -2455,9 +2455,11 @@ public class ObjectInputStream
                 // Save the values until/if we need them
                 assert slotValues.length > 0 : "SlotValues must have at least 1 entry";
                 assert desc == slotValues[slotValues.length - 1].desc : "Last slot value must be instance desc";
+                System.out.println("readSerialData saving slot values: " + passHandle);
                 handles.setObject(passHandle, new LazyReadObject(slotValues));
             }
         }
+        return obj;
     }
 
     /**
@@ -2653,8 +2655,10 @@ public class ObjectInputStream
             if (off >= 0) {
                 int objHandle = objHandles[off];
                 handles.markDependency(passHandle, objHandle);
-                return (handles.lookupException(objHandle) == null) ?
+                Object o = (handles.lookupException(objHandle) == null) ?
                     objValues[off] : null;
+                System.out.println("FieldValues.get(" + name + "), v: " + objValues[off]);
+                return o;
             } else {
                 return val;
             }
@@ -2668,8 +2672,9 @@ public class ObjectInputStream
 
         private void defaultSetFieldValues(Object obj) {
             System.out.printf("defaultSetFieldValues: %s, prim size: %s, obj values: %s%n",
-                    obj.getClass().getName(), primValues != null ? primValues.length : "noprim",
-                    objValues != null ? Arrays.toString(objValues) : "noobj");
+                    obj != null ? obj.getClass().getName() : "no-obj",
+                            primValues != null ? primValues.length : "noprim",
+                            objValues != null ? Arrays.toString(objValues) : "noobj");
 
             if (primValues != null)
                 desc.setPrimFieldValues(obj, primValues);
