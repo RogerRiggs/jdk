@@ -59,6 +59,7 @@ public class Read {
             oin.readObject();
             throw new Error();
         } catch (ObjectStreamException ex) {
+            ex.printStackTrace();
         }
 
         bin = new ByteArrayInputStream(buf);

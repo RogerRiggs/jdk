@@ -497,7 +497,9 @@ public class ObjectInputStream
         // if nested read, passHandle contains handle of enclosing object
         int outerHandle = passHandle;
         try {
-            Object obj = readObject0(type, false, false);
+            FutureObject<?> fo = readObject0(type, false, false);
+//            System.err.println("readObject: " + fo + ", " + (fo == null));
+
             handles.markDependency(outerHandle, passHandle);
             ClassNotFoundException ex = handles.lookupException(passHandle);
             if (ex != null) {
@@ -507,7 +509,7 @@ public class ObjectInputStream
                 vlist.doCallbacks();
                 freeze();
             }
-            return obj;
+            return fo.resolve();
         } finally {
             passHandle = outerHandle;
             if (closed && depth == 0) {
@@ -592,7 +594,7 @@ public class ObjectInputStream
         // if nested read, passHandle contains handle of enclosing object
         int outerHandle = passHandle;
         try {
-            Object obj = readObject0(Object.class, true, false);
+            FutureObject<Object> futObj = readObject0(Object.class, true, false);
             handles.markDependency(outerHandle, passHandle);
             ClassNotFoundException ex = handles.lookupException(passHandle);
             if (ex != null) {
@@ -602,7 +604,8 @@ public class ObjectInputStream
                 vlist.doCallbacks();
                 freeze();
             }
-            return obj;
+
+            return futObj.resolve();
         } finally {
             passHandle = outerHandle;
             if (closed && depth == 0) {
@@ -1622,10 +1625,12 @@ public class ObjectInputStream
      * @param type a type expected to be deserialized; non-null
      * @param unshared true if the object can not be a reference to a shared object, otherwise false
      * @param delayBind if the fields are to be read but not set in an object
-     * @return an Object or an array of slot values if delayBind == true
+     * @return a FutureObject that may or may not have been bound
      * @throws IOException
      */
-    private Object readObject0(Class<?> type, boolean unshared, boolean delayBind) throws IOException {
+    @SuppressWarnings("unchecked")
+    private <T> FutureObject<T> readObject0(Class<T> type, boolean unshared,
+                                       boolean delayBind) throws IOException {
         boolean oldMode = bin.getBlockDataMode();
         if (oldMode) {
             int remain = bin.currentBlockRemaining();
@@ -1654,46 +1659,46 @@ public class ObjectInputStream
         try {
             switch (tc) {
                 case TC_NULL:
-                    return readNull();
+                    return futureObject(readNull(), unshared);
 
                 case TC_REFERENCE:
                     // check the type of the existing object
-                    return type.cast(readHandle(unshared, delayBind));
+                    return (FutureObject<T>)readHandle(unshared);
 
                 case TC_CLASS:
                     if (type == String.class) {
                         throw new ClassCastException("Cannot cast a class to java.lang.String");
                     }
-                    return readClass(unshared);
+                    return (FutureObject<T>)readClass(unshared);
 
                 case TC_CLASSDESC:
                 case TC_PROXYCLASSDESC:
                     if (type == String.class) {
                         throw new ClassCastException("Cannot cast a class to java.lang.String");
                     }
-                    return readClassDesc(unshared, delayBind);
+                    return (FutureObject<T>)readClassDesc(unshared);
 
                 case TC_STRING:
                 case TC_LONGSTRING:
-                    return checkResolve(readString(unshared));
+                    return (FutureObject<T>)readString(unshared);
 
                 case TC_ARRAY:
                     if (type == String.class) {
                         throw new ClassCastException("Cannot cast an array to java.lang.String");
                     }
-                    return checkResolve(readArray(unshared, delayBind));
+                    return  (FutureObject<T>)readArray(unshared, delayBind);
 
                 case TC_ENUM:
                     if (type == String.class) {
                         throw new ClassCastException("Cannot cast an enum to java.lang.String");
                     }
-                    return checkResolve(readEnum(unshared, delayBind));
+                    return (FutureObject<T>)readEnum(unshared, delayBind);
 
                 case TC_OBJECT:
                     if (type == String.class) {
                         throw new ClassCastException("Cannot cast an object to java.lang.String");
                     }
-                    return checkResolve(readOrdinaryObject(unshared, delayBind));
+                    return readOrdinaryObject(type, unshared, delayBind);
 
                 case TC_EXCEPTION:
                     if (type == String.class) {
@@ -1755,7 +1760,7 @@ public class ObjectInputStream
                     filterCheck(rep.getClass(), -1);
                 }
             }
-            handles.setObject(passHandle, rep);
+            handles.setObject(passHandle, futureObject(rep, false));
         }
         return rep;
     }
@@ -1773,11 +1778,11 @@ public class ObjectInputStream
                     return (String) readNull();
 
                 case TC_REFERENCE:
-                    return (String) readHandle(false, false);
+                    return (String) readHandle(false).resolve();
 
                 case TC_STRING:
                 case TC_LONGSTRING:
-                    return readString(false);
+                    return (String) readString(false).resolve();
 
                 default:
                     throw new StreamCorruptedException(
@@ -1803,7 +1808,8 @@ public class ObjectInputStream
      * Reads in object handle, sets passHandle to the read handle, and returns
      * object associated with the handle.
      */
-    private Object readHandle(boolean unshared, boolean delayBind) throws IOException {
+    @SuppressWarnings("unchecked")
+    private FutureObject<Object> readHandle(boolean unshared) throws IOException {
         if (bin.readByte() != TC_REFERENCE) {
             throw new InternalError();
         }
@@ -1819,18 +1825,13 @@ public class ObjectInputStream
                 "cannot read back reference as unshared");
         }
 
-        Object obj = handles.lookupObject(passHandle);
+        FutureObject<Object> obj = (FutureObject<Object>)handles.lookupObject(passHandle);
         if (obj == unsharedMarker) {
             // REMIND: what type of exception to throw here?
             throw new InvalidObjectException(
                 "cannot read back reference to unshared object");
         }
-        if (obj != null) {
-            if (obj instanceof LazyReadObject) {
-                obj = ((LazyReadObject)obj).resolve();
-                handles.setObject(passHandle, obj);
-            }
-        }
+
         filterCheck(null, -1);       // just a check for number of references, depth, no class
         return obj;
     }
@@ -1841,13 +1842,15 @@ public class ObjectInputStream
      * ClassNotFoundException will be associated with the class' handle in the
      * handle table).
      */
-    private Class<?> readClass(boolean unshared) throws IOException {
+    @SuppressWarnings("rawtypes")
+    private FutureObject<Class> readClass(boolean unshared) throws IOException {
         if (bin.readByte() != TC_CLASS) {
             throw new InternalError();
         }
-        ObjectStreamClass desc = readClassDesc(false, false);
+        ObjectStreamClass desc = readClassDesc(false).resolve();
         Class<?> cl = desc.forClass();
-        passHandle = handles.assign(unshared ? unsharedMarker : cl);
+        FutureObject<Class> futClass = futureObject(cl, unshared);
+        passHandle = handles.assign(futClass);
 
         ClassNotFoundException resolveEx = desc.getResolveException();
         if (resolveEx != null) {
@@ -1855,7 +1858,7 @@ public class ObjectInputStream
         }
 
         handles.finish(passHandle);
-        return cl;
+        return futClass;
     }
 
     /**
@@ -1863,26 +1866,30 @@ public class ObjectInputStream
      * to class descriptor's assigned handle.  If class descriptor cannot be
      * resolved to a class in the local VM, a ClassNotFoundException is
      * associated with the class descriptor's handle.
+     *
+     * ObjectStreamClass objects are read eagerly and will resolve immediately.
      */
-    private ObjectStreamClass readClassDesc(boolean unshared, boolean delayBind)
+    @SuppressWarnings({"rawtypes","unchecked"})
+    private FutureObject<ObjectStreamClass> readClassDesc(boolean unshared)
         throws IOException
     {
         byte tc = bin.peekByte();
-        ObjectStreamClass descriptor;
+        FutureObject<ObjectStreamClass> descriptor;
         switch (tc) {
             case TC_NULL:
-                descriptor = (ObjectStreamClass) readNull();
+                descriptor = futureObject(readNull(), unshared);
                 break;
             case TC_REFERENCE:
-                descriptor = (ObjectStreamClass) readHandle(unshared, false);
+                descriptor = (FutureObject) readHandle(unshared);
                 // Should only reference initialized class descriptors
-                descriptor.checkInitialized();
+                // TBD: may need to delay this!
+                // descriptor.checkInitialized();
                 break;
             case TC_PROXYCLASSDESC:
                 descriptor = readProxyDesc(unshared);
                 break;
             case TC_CLASSDESC:
-                descriptor = readNonProxyDesc(unshared, delayBind);
+                descriptor = readNonProxyDesc(unshared);
                 break;
             default:
                 throw new StreamCorruptedException(
@@ -1902,8 +1909,10 @@ public class ObjectInputStream
      * passHandle to proxy class descriptor's assigned handle.  If proxy class
      * descriptor cannot be resolved to a class in the local VM, a
      * ClassNotFoundException is associated with the descriptor's handle.
+     *
+     * ObjectStreamClass objects are read eagerly and will resolve immediately.
      */
-    private ObjectStreamClass readProxyDesc(boolean unshared)
+    private FutureObject<ObjectStreamClass> readProxyDesc(boolean unshared)
         throws IOException
     {
         if (bin.readByte() != TC_PROXYCLASSDESC) {
@@ -1911,7 +1920,8 @@ public class ObjectInputStream
         }
 
         ObjectStreamClass desc = new ObjectStreamClass();
-        int descHandle = handles.assign(unshared ? unsharedMarker : desc);
+        FutureObject<ObjectStreamClass> futDesc = futureObject(desc, unshared);
+        int descHandle = handles.assign(futDesc);
         passHandle = NULL_HANDLE;
 
         int numIfaces = bin.readInt();
@@ -1956,14 +1966,14 @@ public class ObjectInputStream
         try {
             totalObjectRefs++;
             depth++;
-            desc.initProxy(cl, resolveEx, readClassDesc(false, false));
+            desc.initProxy(cl, resolveEx, readClassDesc(false).resolve());
         } finally {
             depth--;
         }
 
         handles.finish(descHandle);
         passHandle = descHandle;
-        return desc;
+        return futDesc;
     }
 
     /**
@@ -1971,8 +1981,10 @@ public class ObjectInputStream
      * proxy class.  Sets passHandle to class descriptor's assigned handle.  If
      * class descriptor cannot be resolved to a class in the local VM, a
      * ClassNotFoundException is associated with the descriptor's handle.
+     *
+     * ObjectStreamClass objects are read eagerly and will resolve immediately.
      */
-    private ObjectStreamClass readNonProxyDesc(boolean unshared, boolean delayBind)
+    private FutureObject<ObjectStreamClass> readNonProxyDesc(boolean unshared)
         throws IOException
     {
         if (bin.readByte() != TC_CLASSDESC) {
@@ -1980,7 +1992,8 @@ public class ObjectInputStream
         }
 
         ObjectStreamClass desc = new ObjectStreamClass();
-        int descHandle = handles.assign(unshared ? unsharedMarker : desc);
+        FutureObject<ObjectStreamClass> futDesc = futureObject(desc, unshared);
+        int descHandle = handles.assign(futDesc);
         passHandle = NULL_HANDLE;
 
         ObjectStreamClass readDesc;
@@ -2003,7 +2016,7 @@ public class ObjectInputStream
             }
         } catch (ClassNotFoundException ex) {
             resolveEx = ex;
-            System.out.println("resolveEx: " + ex);
+//            System.err.println("resolveEx: " + ex);
         }
 
         // Call filterCheck on the class before reading anything else
@@ -2014,8 +2027,7 @@ public class ObjectInputStream
         try {
             totalObjectRefs++;
             depth++;
-//            System.out.println("initNonProxy: " + cl);
-            desc.initNonProxy(readDesc, cl, resolveEx, readClassDesc(false, delayBind));
+            desc.initNonProxy(readDesc, cl, resolveEx, readClassDesc(false).resolve());
         } finally {
             depth--;
         }
@@ -2023,14 +2035,14 @@ public class ObjectInputStream
         handles.finish(descHandle);
         passHandle = descHandle;
 
-        return desc;
+        return futDesc;
     }
 
     /**
      * Reads in and returns new string.  Sets passHandle to new string's
      * assigned handle.
      */
-    private String readString(boolean unshared) throws IOException {
+    private FutureObject<Object> readString(boolean unshared) throws IOException {
         String str;
         byte tc = bin.readByte();
         switch (tc) {
@@ -2046,47 +2058,53 @@ public class ObjectInputStream
                 throw new StreamCorruptedException(
                     String.format("invalid type code: %02X", tc));
         }
-        passHandle = handles.assign(unshared ? unsharedMarker : str);
+        var futStr = futureObject(str, unshared);
+        passHandle = handles.assign(futStr);
         handles.finish(passHandle);
-        return str;
+        return futStr;
     }
 
     /**
      * Reads in and returns array object, or null if array class is
      * unresolvable.  Sets passHandle to array's assigned handle.
      */
-    private Object readArray(boolean unshared, boolean delayBind) throws IOException {
+    @SuppressWarnings("unchecked")
+    private FutureObject<Object> readArray(boolean unshared, boolean delayBind) throws IOException {
         if (bin.readByte() != TC_ARRAY) {
             throw new InternalError();
         }
 
-        ObjectStreamClass desc = readClassDesc(false, delayBind);
+        ObjectStreamClass desc = readClassDesc(false).resolve();
         int len = bin.readInt();
 
         filterCheck(desc.forClass(), len);
 
-        Object array = null;
-        Class<?> cl, ccl = null;
-        if ((cl = desc.forClass()) != null) {
-            ccl = cl.getComponentType();
-            array = Array.newInstance(ccl, len);
-        }
+        Class<?> cl = desc.forClass();
+        Class<?> ccl = (cl == null) ? null : cl.getComponentType();
 
-        int arrayHandle = handles.assign(unshared ? unsharedMarker : array);
+        // Assign a handle slot and set the exception status for it
+        int arrayHandle = handles.assign(futureObject(null, unshared));
         ClassNotFoundException resolveEx = desc.getResolveException();
         if (resolveEx != null) {
             handles.markException(arrayHandle, resolveEx);
         }
 
-        if (ccl == null) {
+        if (cl == null || ccl == null) {
+            // Array of unknown component objects; read and discard
             for (int i = 0; i < len; i++) {
-                readObject0(Object.class, false, delayBind);
+                readObject0(Object.class, false, true);
             }
-        } else if (ccl.isPrimitive()) {
+            return futureObject(null, unshared);
+        }
+        FutureObject<Object> futObj;
+        if (ccl.isPrimitive()) {
+            Object array = Array.newInstance(ccl, len);
             if (ccl == Integer.TYPE) {
                 bin.readInts((int[]) array, 0, len);
             } else if (ccl == Byte.TYPE) {
                 bin.readFully((byte[]) array, 0, len, true);
+                // TBD: Consider copying the array since
+                // it will have been passed to the input stream
             } else if (ccl == Long.TYPE) {
                 bin.readLongs((long[]) array, 0, len);
             } else if (ccl == Float.TYPE) {
@@ -2102,60 +2120,74 @@ public class ObjectInputStream
             } else {
                 throw new InternalError();
             }
-        } else {
-            Object[] oa = (Object[]) array;
+            futObj = futureObject(array, unshared);
+        } else if (delayBind) {
+            // Create an array for each FutureObject and fill it
+            FutureObject<Object>[] foa =
+                    (FutureObject<Object>[])Array.newInstance(FutureObject.class, len);
             for (int i = 0; i < len; i++) {
-                oa[i] = readObject0(Object.class, false, delayBind);
+                foa[i] = readObject0(Object.class, false, delayBind);
                 handles.markDependency(arrayHandle, passHandle);
             }
+            futObj = futureObject(desc, foa, unshared);
+        } else {
+            // Resolve objects if not delaying
+            Object[] array = (Object[])Array.newInstance(ccl, len);
+            for (int i = 0; i < len; i++) {
+                FutureObject<Object> fo = readObject0(Object.class, false, delayBind);
+                handles.markDependency(arrayHandle, passHandle);
+                if (fo != null)
+                    array[i] = fo.resolve();
+            }
+            futObj = futureObject(desc, array, unshared);
         }
-
+        handles.setObject(arrayHandle, futObj);
         handles.finish(arrayHandle);
         passHandle = arrayHandle;
-        return array;
+        return futObj;
     }
 
     /**
      * Reads in and returns enum constant, or null if enum type is
      * unresolvable.  Sets passHandle to enum constant's assigned handle.
      */
-    private Enum<?> readEnum(boolean unshared, boolean delayBind) throws IOException {
+    @SuppressWarnings("rawtypes")
+    private FutureObject<Enum> readEnum(boolean unshared, boolean delayBind) throws IOException {
         if (bin.readByte() != TC_ENUM) {
             throw new InternalError();
         }
 
-        ObjectStreamClass desc = readClassDesc(false, delayBind);
+        ObjectStreamClass desc = readClassDesc(false).resolve();
         if (!desc.isEnum()) {
             throw new InvalidClassException("non-enum class: " + desc);
         }
-
-        int enumHandle = handles.assign(unshared ? unsharedMarker : null);
+        int enumHandle = handles.assign(futureObject(null, unshared));
         ClassNotFoundException resolveEx = desc.getResolveException();
         if (resolveEx != null) {
             handles.markException(enumHandle, resolveEx);
         }
 
-        String name = readString(false);
-        Enum<?> result = null;
+        String name = (String)readString(false).resolve();
+        FutureObject<Enum> futResult;
         Class<?> cl = desc.forClass();
         if (cl != null) {
             try {
-                @SuppressWarnings("unchecked")
+                @SuppressWarnings({"unchecked","rawtypes"})
                 Enum<?> en = Enum.valueOf((Class)cl, name);
-                result = en;
+                futResult = futureObject(en, unshared);
             } catch (IllegalArgumentException ex) {
                 throw (IOException) new InvalidObjectException(
                     "enum constant " + name + " does not exist in " +
                     cl).initCause(ex);
             }
-            if (!unshared) {
-                handles.setObject(enumHandle, result);
-            }
+        } else {
+            futResult = futureObject(desc, null, unshared);
         }
+        handles.setObject(enumHandle, futResult);
 
         handles.finish(enumHandle);
         passHandle = enumHandle;
-        return result;
+        return futResult;
     }
 
     /**
@@ -2165,17 +2197,19 @@ public class ObjectInputStream
      * associated with object's handle).  Sets passHandle to object's assigned
      * handle.
      */
-    private Object readOrdinaryObject(boolean unshared, boolean delayBind)
-        throws IOException
-    {
+    @SuppressWarnings("unchecked")
+    private <T> FutureObject<T> readOrdinaryObject(Class<T> type, boolean unshared,
+                                                    boolean delayBind)
+        throws IOException {
         if (bin.readByte() != TC_OBJECT) {
             throw new InternalError();
         }
 
-        ObjectStreamClass desc = readClassDesc(false, delayBind);
+        ObjectStreamClass desc = readClassDesc(false).resolve();
         desc.checkDeserialize();
 
         Class<?> cl = desc.forClass();
+        assert cl == null || type.isAssignableFrom(cl) : "descriptor not assignable to requested type: " + cl;
         if (cl == String.class || cl == Class.class
                 || cl == ObjectStreamClass.class) {
             throw new InvalidClassException("invalid class descriptor");
@@ -2195,11 +2229,12 @@ public class ObjectInputStream
             }
         } catch (Exception ex) {
             throw (IOException) new InvalidClassException(
-                desc.forClass().getName(),
-                "unable to create instance").initCause(ex);
+                    desc.forClass().getName(),
+                    "unable to create instance").initCause(ex);
         }
 
-        passHandle = handles.assign(unshared ? unsharedMarker : obj);
+        FutureObject<T> futObj = futureObject(obj, unshared);
+        passHandle = handles.assign(futObj);
         ClassNotFoundException resolveEx = desc.getResolveException();
         if (resolveEx != null) {
             handles.markException(passHandle, resolveEx);
@@ -2209,22 +2244,30 @@ public class ObjectInputStream
 
         final boolean isRecord = desc.isRecord();
         if (isRecord) {
-            assert obj == null;
+            assert obj == null : "Instance created before reading Record";
             obj = readRecord(desc);
+            futObj = futureObject(obj, unshared);
             if (!unshared)
-                handles.setObject(passHandle, obj);
+                handles.setObject(passHandle, futObj);
         } else if (desc.isExternalizable()) {
             readExternalData((Externalizable) obj, desc, delayBind);
+            futObj = futureObject(obj, unshared);
         } else {
-            obj = readSerialData(obj, desc, delayBind);
+            futObj = (FutureObject<T>)readSerialData(obj, desc, delayBind);
         }
 
         handles.finish(passHandle);
 
+        return (FutureObject<T>) doReadResolve(desc, (FutureObject<Object>)futObj, unshared);
+    }
+
+    private FutureObject<Object> doReadResolve(ObjectStreamClass desc,
+                                               FutureObject<Object> futObj, boolean unshared) throws IOException {
+        Object obj = futObj.resolve();
         if (obj != null &&
-            handles.lookupException(passHandle) == null &&
-            desc.hasReadResolveMethod())
-        {
+                handles.lookupException(passHandle) == null &&
+                desc.hasReadResolveMethod()) {
+//            System.err.println("invoking readResolve, desc: " + desc.getName() + ", obj: " + obj);
             Object rep = desc.invokeReadResolve(obj);
             if (unshared && rep.getClass().isArray()) {
                 rep = cloneArray(rep);
@@ -2238,11 +2281,11 @@ public class ObjectInputStream
                         filterCheck(rep.getClass(), -1);
                     }
                 }
-                handles.setObject(passHandle, obj = rep);
+                futObj = futureObject(rep, unshared);
+                handles.setObject(passHandle, futObj);
             }
         }
-
-        return obj;
+        return futObj;
     }
 
     /**
@@ -2340,7 +2383,7 @@ public class ObjectInputStream
      * object in stream, from superclass to subclass.  Expects that passHandle
      * is set to obj's handle before this method is called.
      */
-    private Object readSerialData(Object obj,
+    private FutureObject<Object> readSerialData(Object obj,
                                 ObjectStreamClass desc, boolean delayBind)
         throws IOException
     {
@@ -2455,24 +2498,26 @@ public class ObjectInputStream
                 // Save the values until/if we need them
                 assert slotValues.length > 0 : "SlotValues must have at least 1 entry";
                 assert desc == slotValues[slotValues.length - 1].desc : "Last slot value must be instance desc";
-                System.out.println("readSerialData saving slot values: " + passHandle);
-                handles.setObject(passHandle, new LazyReadObject(slotValues));
+//                System.err.println("readSerialData saving slot values: " + passHandle);
+                handles.setObject(passHandle, futureObject(desc, slotValues, false));
             }
         }
-        return obj;
+        return futureObject(obj, false);
     }
 
     /**
      * Set the fields of the object to the slotValues, iff they all are assignable.
+     * SlotValues[i] == null if the class had a readObject()
+     *
      * @param obj the instance
      * @param desc the class descriptor
      * @param slotValues array of slot values
      * @throws IOException if an error
      */
     private static void assignObjValues(Object obj, ObjectStreamClass desc, FieldValues[] slotValues)
-            throws InvalidClassException {
+            throws IOException {
         assert slotValues.length > 0 : "SlotValues must have at least 1 entry";
-        assert desc == slotValues[slotValues.length - 1].desc : "Last slot value must be instance desc";
+        System.err.println("assign values: " + Arrays.toString(slotValues));
 
         ObjectStreamClass.ClassDataSlot[] slots = desc.getClassDataLayout();
         // Check that the non-primitive types are assignable for all slots
@@ -2527,7 +2572,7 @@ public class ObjectInputStream
             throw new InternalError();
         }
         clear();
-        return (IOException) readObject0(Object.class, false, false);
+        return (IOException) readObject0(Object.class, false, false).resolve();
     }
 
     /**
@@ -2575,6 +2620,7 @@ public class ObjectInputStream
          * @param recordDependencies if true, record the dependencies
          *                           from current PassHandle and the object's read.
          */
+        @SuppressWarnings({"unchecked", "rawtypes"})
         FieldValues(ObjectStreamClass desc, boolean recordDependencies,
                     boolean delayBind) throws IOException {
             this.desc = desc;
@@ -2650,14 +2696,18 @@ public class ObjectInputStream
             return (off >= 0) ? Bits.getDouble(primValues, off) : val;
         }
 
-        public Object get(String name, Object val) {
+        @SuppressWarnings("unchecked")
+        public Object get(String name, Object val) throws IOException {
             int off = getFieldOffset(name, Object.class);
             if (off >= 0) {
                 int objHandle = objHandles[off];
                 handles.markDependency(passHandle, objHandle);
                 Object o = (handles.lookupException(objHandle) == null) ?
                     objValues[off] : null;
-                System.out.println("FieldValues.get(" + name + "), v: " + objValues[off]);
+//                System.err.println("FieldValues.get(" + name + "), v: " + objVals[off]);
+                if (o instanceof FutureObject) {
+                    o = ((FutureObject<Object>)o).resolve();
+                }
                 return o;
             } else {
                 return val;
@@ -2665,13 +2715,21 @@ public class ObjectInputStream
         }
 
         /** Throws ClassCastException if any value is not assignable. */
-        void defaultCheckFieldValues(Object obj) {
-            if (objValues != null)
+        @SuppressWarnings("unchecked")
+        void defaultCheckFieldValues(Object obj) throws IOException {
+            if (objValues != null) {
+                // Replace any unresolved value with its value
+                for (int i = 0; i < objValues.length; i++) {
+                    if (objValues[i] instanceof FutureObject) {
+                        objValues[i] = ((FutureObject<Object>) objValues[i]).resolve();
+                    }
+                }
                 desc.checkObjFieldValueTypes(obj, objValues);
+            }
         }
 
-        private void defaultSetFieldValues(Object obj) {
-            System.out.printf("defaultSetFieldValues: %s, prim size: %s, obj values: %s%n",
+        private void defaultSetFieldValues(Object obj) throws IOException {
+            System.err.printf("defaultSetFieldValues: %s, prim size: %s, obj values: %s%n",
                     obj != null ? obj.getClass().getName() : "no-obj",
                             primValues != null ? primValues.length : "noprim",
                             objValues != null ? Arrays.toString(objValues) : "noobj");
@@ -2704,24 +2762,87 @@ public class ObjectInputStream
         }
     }
 
-    private static class LazyReadObject {
-        private final FieldValues[] fieldValues;
+
+    @SuppressWarnings("unchecked")
+    <T> FutureObject<T> futureObject(Object obj, boolean unshared) {
+        return new FutureObject<T>((T)obj, unshared);
+    }
+
+    @SuppressWarnings("unchecked")
+    <T> FutureObject<T> futureObject(ObjectStreamClass desc, Object array,
+                                     boolean unshared) {
+        return new FutureObject<T>(desc, array, unshared);
+    }
+
+    @SuppressWarnings("unchecked")
+    <T> FutureObject<T> futureObject(ObjectStreamClass desc, FieldValues[] values,
+                                     boolean unshared) {
+        return new FutureObject<T>(desc, values, unshared);
+    }
+
+    final FutureObject<Object> NOT_RESOLVED = new FutureObject<>(null, false);
+
+    /**
+     * A holder for an object that may or may not have a value yet.
+     */
+    final class FutureObject<T> {
+
+        private ObjectStreamClass desc;
         private Object resolvedObject;
-        private static final Object unresolved = new Object();
+        private final FieldValues[] fieldValues;
+        private final boolean unshared;
 
-        LazyReadObject(FieldValues[] values) {
-            this.fieldValues = Objects.requireNonNull(values);
-            this.resolvedObject = unresolved;
+        private FutureObject(T obj, boolean unshared) {
+            this.desc = null;
+            this.resolvedObject = obj;
+            this.fieldValues = null;
+            this.unshared = unshared;
         }
 
-        Object resolve() throws InvalidClassException {
-            if (resolvedObject == unresolved) {
-                Object o = makeObjFromFieldValues(fieldValues);
-                resolvedObject = o;
-                return o;
+        private FutureObject(ObjectStreamClass desc, Object array, boolean unshared) {
+            this.desc = desc;
+            this.resolvedObject = array;
+            this.fieldValues = null;
+            this.unshared = unshared;
+        }
+
+        private FutureObject(ObjectStreamClass desc, FieldValues[] values, boolean unshared) {
+            this.desc = Objects.requireNonNull(desc, "desc");
+            this.resolvedObject = NOT_RESOLVED;
+            this.fieldValues = Objects.requireNonNull(values, "fieldValues");
+            this.unshared = unshared;
+        }
+
+        boolean unshared() {
+            return unshared;
+        }
+
+        @SuppressWarnings("unchecked")
+        T resolve() throws IOException {
+            Object result;
+            if (resolvedObject == NOT_RESOLVED) {
+                Object o = result = makeObjFromFieldValues(fieldValues);
+                if (desc.hasReadResolveMethod())
+                    result = desc.invokeReadResolve(result);
+//                System.err.println("resolving: " + o + ", to: " + result);
+            } else if (resolvedObject instanceof FutureObject[]) {
+                // Should create an array resolving each element
+                FutureObject<?>[] futures = (FutureObject[])resolvedObject;
+                Class<?> cctype = desc.forClass().componentType();
+                result = Array.newInstance(cctype, futures.length);
+                for (int i = 0; i < futures.length; i++) {
+                    Array.set(result, i, futures[i].resolve());
+                }
+            } else if (resolvedObject == unsharedMarker) {
+                throw new InvalidObjectException(
+                        "cannot read back reference to unshared object");
+            } else {
+                result = resolvedObject;
             }
-            return resolvedObject;
+            resolvedObject = unshared ? unsharedMarker : result;
+            return (T) checkResolve(result);
         }
+
         /**
          * Create and initialize an instance from an array of FieldValues.
          * The type is from the last descriptor.
@@ -2729,9 +2850,11 @@ public class ObjectInputStream
          * @return an instance of the class of the descriptor of the last value.
          * @throws InvalidClassException if there is a circular reference
          */
-        private Object makeObjFromFieldValues(FieldValues[] fieldValues) throws InvalidClassException {
+        private Object makeObjFromFieldValues(FieldValues[] fieldValues) throws IOException {
             assert fieldValues.length > 0 : "SlotValues must have at least 1 entry";
             ObjectStreamClass desc = fieldValues[fieldValues.length - 1].desc;
+            assert desc.isInstantiable() :
+                    "makeObjFromFieldValues but not instantiable: " + desc.getName();
 
             if (Logging.filterLogger != null) {
                 Logging.filterLogger.log(Logger.Level.TRACE,
@@ -2746,6 +2869,12 @@ public class ObjectInputStream
                 // TBD don't get this far if the class isn't instantiable
                 throw new AssertionError("unable to create: " + desc.getName());
             }
+        }
+
+        public String toString() {
+            if (resolvedObject == NOT_RESOLVED)
+                return "NOT_RESOLVED " + desc.getName();
+            return (resolvedObject != null) ? resolvedObject.getClass().toString() : "r=null";
         }
     };
 
@@ -3947,6 +4076,9 @@ public class ObjectInputStream
             }
             status[size] = STATUS_UNKNOWN;
             entries[size] = obj;
+//            System.err.println(" handles.assign: " + size + ": " + obj);
+            if (obj == null)
+                Thread.dumpStack();
             return size++;
         }
 
@@ -4080,6 +4212,10 @@ public class ObjectInputStream
                 case STATUS_UNKNOWN:
                 case STATUS_OK:
                     entries[handle] = obj;
+//                    System.err.println(" handles.set: " + handle + ": " + obj);
+                    if (!(obj instanceof FutureObject))
+                        throw new RuntimeException("handles.setObject set to " +
+                            "non-futureObject: " + handle + ", o: " + obj);
                     break;
 
                 case STATUS_EXCEPTION:
@@ -4096,9 +4232,13 @@ public class ObjectInputStream
          * associated ClassNotFoundException.
          */
         Object lookupObject(int handle) {
-            return (handle != NULL_HANDLE &&
-                    status[handle] != STATUS_EXCEPTION) ?
-                entries[handle] : null;
+            if (handle == NULL_HANDLE)
+                return null;
+            if (status[handle] == STATUS_EXCEPTION) {
+                assert entries[handle] != null : "lookupObject found null exception";
+                return null;
+            }
+            return entries[handle];
         }
 
         /**
@@ -4107,9 +4247,13 @@ public class ObjectInputStream
          * if there is no ClassNotFoundException associated with the handle.
          */
         ClassNotFoundException lookupException(int handle) {
-            return (handle != NULL_HANDLE &&
-                    status[handle] == STATUS_EXCEPTION) ?
-                (ClassNotFoundException) entries[handle] : null;
+            if (handle == NULL_HANDLE)
+                return null;
+            if (status[handle] == STATUS_EXCEPTION) {
+                assert entries[handle] != null : "lookupException returning null exception";
+                return (ClassNotFoundException) entries[handle];
+            }
+            return null;
         }
 
         /**

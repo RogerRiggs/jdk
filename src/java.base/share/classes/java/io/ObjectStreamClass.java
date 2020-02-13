@@ -1322,7 +1322,10 @@ public final class ObjectStreamClass implements Serializable {
                     throwMiscException(th);
                     throw new InternalError(th);  // never reached
                 }
-            } catch (IllegalAccessException ex) {
+            } catch (IllegalArgumentException iae) {
+                System.out.println("readResolveM: " + readResolveMethod + ", cl: " + obj.getClass());
+                throw iae;
+            } catch  (IllegalAccessException ex) {
                 // should not occur, as access checks have been suppressed
                 throw new InternalError(ex);
             }
@@ -1860,7 +1863,7 @@ public final class ObjectStreamClass implements Serializable {
      * Computes the default serial version UID value for the given class.
      */
     private static long computeDefaultSUID(Class<?> cl) {
-        if (!Serializable.class.isAssignableFrom(cl) || Proxy.isProxyClass(cl))
+        if (cl == null || !Serializable.class.isAssignableFrom(cl) || Proxy.isProxyClass(cl))
         {
             return 0L;
         }
