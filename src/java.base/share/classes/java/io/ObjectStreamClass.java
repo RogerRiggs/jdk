@@ -1221,6 +1221,7 @@ public final class ObjectStreamClass implements Serializable {
                UnsupportedOperationException
     {
         requireInitialized();
+        assert obj != null : "invokeReadObject with null object";
         if (readObjectMethod != null) {
             try {
                 readObjectMethod.invoke(obj, new Object[]{ in });
