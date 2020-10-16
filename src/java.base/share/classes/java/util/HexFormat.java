@@ -640,12 +640,13 @@ public final class HexFormat {
      * The behavior is equivalent to
      * {@link #toHexDigits(byte) out.append(toHexDigits((byte)value))}.
      *
+     * @param <A> The type of Appendable
      * @param out an Appendable, non-null
      * @param value a byte value
      * @return the {@code Appendable}
      * @throws UncheckedIOException if an I/O exception occurs appending to the output
      */
-    public Appendable toHexDigits(Appendable out, byte value) {
+    public <A extends Appendable> A toHexDigits(A out, byte value) {
         Objects.requireNonNull(out, "out");
         try {
             out.append(toHighHexDigit(value));

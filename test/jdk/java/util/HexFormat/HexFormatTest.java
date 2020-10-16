@@ -24,6 +24,8 @@
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import java.io.CharArrayWriter;
+import java.nio.CharBuffer;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Locale;
@@ -177,12 +179,13 @@ public class HexFormatTest {
     }
 
     @Test
-    static void testAppendHexByte() {
+    static void testAppendHexByteWithStringBuilder() {
         HexFormat hex = HexFormat.of();
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < 256; i++) {
             sb.setLength(0);
-            hex.toHexDigits(sb, (byte)i);
+            StringBuilder sb1 = hex.toHexDigits(sb, (byte)i);
+            assertTrue(sb1 == sb);
             assertEquals(sb.length(), 2, "wrong length after append: " + i);
             assertEquals(sb.charAt(0), hex.toHighHexDigit((byte)i), "MSB converted wrong");
             assertEquals(sb.charAt(1), hex.toLowHexDigit((byte)i), "LSB converted wrong");
@@ -192,8 +195,31 @@ public class HexFormatTest {
     }
 
     @Test
+    static void testAppendHexByteWithCharBuffer() {
+        HexFormat hex = HexFormat.of();
+        CharBuffer cb = CharBuffer.allocate(256);
+        for (int i = 1; i <= 128; i++) {
+            CharBuffer cb1 = hex.toHexDigits(cb, (byte)i);
+            assertTrue(cb1 == cb);
+            assertEquals(cb.position(), i * 2);
+        }
+        assertEquals(cb.remaining(), 0);
+    }
+
+    @Test
+    static void testAppendHexByteWithCharArrayWriter() {
+        HexFormat hex = HexFormat.of();
+        CharArrayWriter caw = new CharArrayWriter();
+        for (int i = 1; i <= 128; i++) {
+            CharArrayWriter caw1 = hex.toHexDigits(caw, (byte)i);
+            assertTrue(caw1 == caw);
+            assertEquals(caw.size(), i * 2);
+        }
+    }
+
+    @Test
     static void testFromHexPairInvalid() {
-                HexFormat hex = HexFormat.of();
+        HexFormat hex = HexFormat.of();
 
         // An assortment of invalid characters
         String chars = "-0--0-";
