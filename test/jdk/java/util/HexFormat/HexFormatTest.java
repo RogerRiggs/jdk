@@ -39,6 +39,7 @@ import java.util.Locale;
 
 @Test
 public class HexFormatTest {
+    static final Class<NullPointerException> NPE = NullPointerException.class;
 
     @DataProvider(name = "HexFormattersParsers")
     Object[][] hexFormattersParsers() {
@@ -217,55 +218,41 @@ public class HexFormatTest {
 
     @Test
     static void testFactoryNPE() {
-        Assert.assertThrows(NullPointerException.class, () -> HexFormat.ofDelimiter(null));
-        Assert.assertThrows(NullPointerException.class, () -> HexFormat.of().withDelimiter(null));
-        Assert.assertThrows(NullPointerException.class, () -> HexFormat.of().withPrefix(null));
-        Assert.assertThrows(NullPointerException.class, () -> HexFormat.of().withSuffix(null));
+        Assert.assertThrows(NPE, () -> HexFormat.ofDelimiter(null));
+        Assert.assertThrows(NPE, () -> HexFormat.of().withDelimiter(null));
+        Assert.assertThrows(NPE, () -> HexFormat.of().withPrefix(null));
+        Assert.assertThrows(NPE, () -> HexFormat.of().withSuffix(null));
     }
 
     @Test
     static void testFormatHexNPE() {
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().formatHex(null));
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().formatHex(null, 0, 1));
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().formatHex(null, null));
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().formatHex(null, null, 0, 0));
+        Assert.assertThrows(NPE, () -> HexFormat.of().formatHex(null));
+        Assert.assertThrows(NPE, () -> HexFormat.of().formatHex(null, 0, 1));
+        Assert.assertThrows(NPE, () -> HexFormat.of().formatHex(null, null));
+        Assert.assertThrows(NPE,  () -> HexFormat.of().formatHex(null, null, 0, 0));
         StringBuilder sb = new StringBuilder();
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().formatHex(sb, null));
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().formatHex(sb, null, 0, 1));
+        Assert.assertThrows(NPE, () -> HexFormat.of().formatHex(sb, null));
+        Assert.assertThrows(NPE, () -> HexFormat.of().formatHex(sb, null, 0, 1));
     }
 
     @Test
     static void testParseHexNPE() {
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().parseHex(null));
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().parseHex((String)null, 0, 0));
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().parseHex((char[])null, 0, 0));
+        Assert.assertThrows(NPE, () -> HexFormat.of().parseHex(null));
+        Assert.assertThrows(NPE, () -> HexFormat.of().parseHex((String)null, 0, 0));
+        Assert.assertThrows(NPE, () -> HexFormat.of().parseHex((char[])null, 0, 0));
     }
 
     @Test
     static void testFromHexNPE() {
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().fromHexDigits(null));
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().fromHexDigits(null, 0, 0));
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().fromHexDigitsToLong(null));
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().fromHexDigitsToLong(null, 0, 0));
+        Assert.assertThrows(NPE, () -> HexFormat.of().fromHexDigits(null));
+        Assert.assertThrows(NPE, () -> HexFormat.of().fromHexDigits(null, 0, 0));
+        Assert.assertThrows(NPE, () -> HexFormat.of().fromHexDigitsToLong(null));
+        Assert.assertThrows(NPE, () -> HexFormat.of().fromHexDigitsToLong(null, 0, 0));
     }
 
     @Test
     static void testToHexDigitsNPE() {
-        Assert.assertThrows(NullPointerException.class,
-                () -> HexFormat.of().toHexDigits(null, (byte)0));
+        Assert.assertThrows(NPE, () -> HexFormat.of().toHexDigits(null, (byte)0));
     }
 
     @Test(dataProvider = "BadParseHexThrowing")
