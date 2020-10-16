@@ -21,13 +21,16 @@
  * questions.
  */
 
-import org.testng.Assert;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Locale;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertThrows;
+import static org.testng.Assert.assertTrue;
+import static org.testng.Assert.expectThrows;
 
 /*
  * @test
@@ -132,7 +135,7 @@ public class HexFormatTest {
         for (int i = 0; i < 32; i++) {
             char c = hex.toLowHexDigit((byte)i);
             String expected = Integer.toHexString(i & 0xf);
-            Assert.assertEquals(c, expected.charAt(0), "toHex formatting");
+            assertEquals(c, expected.charAt(0), "toHex formatting");
         }
     }
 
@@ -142,10 +145,10 @@ public class HexFormatTest {
         for (int i = 0; i < 256; i++) {
             String actual = hex.toHexDigits((byte)i);
             int expected = hex.fromHexDigits(actual);
-            Assert.assertEquals(expected, i, "byteFromHex formatting");
-            Assert.assertEquals(actual.charAt(0), hex.toHighHexDigit((byte)i),
+            assertEquals(expected, i, "byteFromHex formatting");
+            assertEquals(actual.charAt(0), hex.toHighHexDigit((byte)i),
                     "first char mismatch");
-            Assert.assertEquals(actual.charAt(1), hex.toLowHexDigit((byte)i),
+            assertEquals(actual.charAt(1), hex.toLowHexDigit((byte)i),
                     "second char mismatch");
         }
     }
@@ -156,7 +159,7 @@ public class HexFormatTest {
         String chars = "0123456789ABCDEF0123456789abcdef";
         for (int i = 0; i < chars.length(); i++) {
             int v = hex.fromHexDigit(chars.charAt(i));
-            Assert.assertEquals(v, i & 0xf, "fromHex decode");
+            assertEquals(v, i & 0xf, "fromHex decode");
         }
     }
 
@@ -167,7 +170,7 @@ public class HexFormatTest {
         String chars = "\u0000 /:\u0040G\u0060g\u007f";
         for (int i = 0; i < chars.length(); i++) {
             char ch = chars.charAt(i);
-            Throwable ex = Assert.expectThrows(NumberFormatException.class,
+            Throwable ex = expectThrows(NumberFormatException.class,
                     () -> hex.fromHexDigit(ch));
             System.out.println(ex);
         }
@@ -180,11 +183,11 @@ public class HexFormatTest {
         for (int i = 0; i < 256; i++) {
             sb.setLength(0);
             hex.toHexDigits(sb, (byte)i);
-            Assert.assertEquals(sb.length(), 2, "wrong length after append: " + i);
-            Assert.assertEquals(sb.charAt(0), hex.toHighHexDigit((byte)i), "MSB converted wrong");
-            Assert.assertEquals(sb.charAt(1), hex.toLowHexDigit((byte)i), "LSB converted wrong");
+            assertEquals(sb.length(), 2, "wrong length after append: " + i);
+            assertEquals(sb.charAt(0), hex.toHighHexDigit((byte)i), "MSB converted wrong");
+            assertEquals(sb.charAt(1), hex.toLowHexDigit((byte)i), "LSB converted wrong");
 
-            Assert.assertEquals(hex.fromHexDigits(sb), i, "hex.format(sb, byte) wrong");
+            assertEquals(hex.fromHexDigits(sb), i, "hex.format(sb, byte) wrong");
         }
     }
 
@@ -196,7 +199,7 @@ public class HexFormatTest {
         String chars = "-0--0-";
         for (int i = 0; i < chars.length(); i += 2) {
             final int ndx = i;
-            Throwable ex = Assert.expectThrows(NumberFormatException.class,
+            Throwable ex = expectThrows(NumberFormatException.class,
                     () -> hex.fromHexDigits(chars.subSequence(ndx, ndx+2)));
             System.out.println(ex);
         }
@@ -205,7 +208,7 @@ public class HexFormatTest {
     @Test(dataProvider = "HexStringsThrowing")
     static void testToBytesThrowing(String value, String sep, String prefix, String suffix) {
         HexFormat hex = HexFormat.ofDelimiter(sep).withPrefix(prefix).withSuffix(suffix);
-        Throwable ex = Assert.expectThrows(IllegalArgumentException.class,
+        Throwable ex = expectThrows(IllegalArgumentException.class,
                 () -> {
                     byte[] v = hex.parseHex(value);
                     System.out.println("str: " + value + ", actual: " + v + ", bytes: " +
@@ -216,59 +219,59 @@ public class HexFormatTest {
 
     @Test
     static void testFactoryNPE() {
-        Assert.assertThrows(NPE, () -> HexFormat.ofDelimiter(null));
-        Assert.assertThrows(NPE, () -> HexFormat.of().withDelimiter(null));
-        Assert.assertThrows(NPE, () -> HexFormat.of().withPrefix(null));
-        Assert.assertThrows(NPE, () -> HexFormat.of().withSuffix(null));
+        assertThrows(NPE, () -> HexFormat.ofDelimiter(null));
+        assertThrows(NPE, () -> HexFormat.of().withDelimiter(null));
+        assertThrows(NPE, () -> HexFormat.of().withPrefix(null));
+        assertThrows(NPE, () -> HexFormat.of().withSuffix(null));
     }
 
     @Test
     static void testFormatHexNPE() {
-        Assert.assertThrows(NPE, () -> HexFormat.of().formatHex(null));
-        Assert.assertThrows(NPE, () -> HexFormat.of().formatHex(null, 0, 1));
-        Assert.assertThrows(NPE, () -> HexFormat.of().formatHex(null, null));
-        Assert.assertThrows(NPE,  () -> HexFormat.of().formatHex(null, null, 0, 0));
+        assertThrows(NPE, () -> HexFormat.of().formatHex(null));
+        assertThrows(NPE, () -> HexFormat.of().formatHex(null, 0, 1));
+        assertThrows(NPE, () -> HexFormat.of().formatHex(null, null));
+        assertThrows(NPE,  () -> HexFormat.of().formatHex(null, null, 0, 0));
         StringBuilder sb = new StringBuilder();
-        Assert.assertThrows(NPE, () -> HexFormat.of().formatHex(sb, null));
-        Assert.assertThrows(NPE, () -> HexFormat.of().formatHex(sb, null, 0, 1));
+        assertThrows(NPE, () -> HexFormat.of().formatHex(sb, null));
+        assertThrows(NPE, () -> HexFormat.of().formatHex(sb, null, 0, 1));
     }
 
     @Test
     static void testParseHexNPE() {
-        Assert.assertThrows(NPE, () -> HexFormat.of().parseHex(null));
-        Assert.assertThrows(NPE, () -> HexFormat.of().parseHex((String)null, 0, 0));
-        Assert.assertThrows(NPE, () -> HexFormat.of().parseHex((char[])null, 0, 0));
+        assertThrows(NPE, () -> HexFormat.of().parseHex(null));
+        assertThrows(NPE, () -> HexFormat.of().parseHex((String)null, 0, 0));
+        assertThrows(NPE, () -> HexFormat.of().parseHex((char[])null, 0, 0));
     }
 
     @Test
     static void testFromHexNPE() {
-        Assert.assertThrows(NPE, () -> HexFormat.of().fromHexDigits(null));
-        Assert.assertThrows(NPE, () -> HexFormat.of().fromHexDigits(null, 0, 0));
-        Assert.assertThrows(NPE, () -> HexFormat.of().fromHexDigitsToLong(null));
-        Assert.assertThrows(NPE, () -> HexFormat.of().fromHexDigitsToLong(null, 0, 0));
+        assertThrows(NPE, () -> HexFormat.of().fromHexDigits(null));
+        assertThrows(NPE, () -> HexFormat.of().fromHexDigits(null, 0, 0));
+        assertThrows(NPE, () -> HexFormat.of().fromHexDigitsToLong(null));
+        assertThrows(NPE, () -> HexFormat.of().fromHexDigitsToLong(null, 0, 0));
     }
 
     @Test
     static void testToHexDigitsNPE() {
-        Assert.assertThrows(NPE, () -> HexFormat.of().toHexDigits(null, (byte)0));
+        assertThrows(NPE, () -> HexFormat.of().toHexDigits(null, (byte)0));
     }
 
     @Test(dataProvider = "BadParseHexThrowing")
     static void badParseHex(String string, int offset, int length,
                             Class<? extends Throwable> exClass) {
-        Assert.assertThrows(exClass,
+        assertThrows(exClass,
                 () -> HexFormat.of().parseHex(string, offset, length));
         char[] chars = string.toCharArray();
-        Assert.assertThrows(exClass,
+        assertThrows(exClass,
                 () -> HexFormat.of().parseHex(chars, offset, length));
     }
 
     @Test(dataProvider = "BadFromHexDigitsThrowing")
     static void badFromHexDigits(String string, int offset, int length,
                            Class<? extends Throwable> exClass) {
-        Assert.assertThrows(exClass,
+        assertThrows(exClass,
                 () -> HexFormat.of().fromHexDigits(string, offset, length));
-        Assert.assertThrows(exClass,
+        assertThrows(exClass,
                 () -> HexFormat.of().fromHexDigitsToLong(string, offset, length));
     }
 
@@ -276,13 +279,13 @@ public class HexFormatTest {
     // or the number of requested digits is too large.
     @Test
     static void wrongNumberDigits() {
-        Assert.assertThrows(IllegalArgumentException.class,
+        assertThrows(IllegalArgumentException.class,
                 () -> HexFormat.of().fromHexDigits("9876543210"));
-        Assert.assertThrows(IllegalArgumentException.class,
+        assertThrows(IllegalArgumentException.class,
                 () -> HexFormat.of().fromHexDigits("9876543210", 0, 9));
-        Assert.assertThrows(IllegalArgumentException.class,
+        assertThrows(IllegalArgumentException.class,
                 () -> HexFormat.of().fromHexDigitsToLong("98765432109876543210"));
-        Assert.assertThrows(IllegalArgumentException.class,
+        assertThrows(IllegalArgumentException.class,
                 () -> HexFormat.of().fromHexDigitsToLong("98765432109876543210", 0, 17));
     }
 
@@ -292,11 +295,11 @@ public class HexFormatTest {
                                    HexFormat hex) {
         byte[] expected = genBytes('A', 15);
         String res = hex.formatHex(expected);
-        Assert.assertTrue(res.startsWith(prefix), "Prefix not found");
-        Assert.assertTrue(res.endsWith(suffix), "Suffix not found");
+        assertTrue(res.startsWith(prefix), "Prefix not found");
+        assertTrue(res.endsWith(suffix), "Suffix not found");
         int expectedLen = expected.length * (2 + prefix.length() +
                 delimiter.length() + suffix.length()) - delimiter.length();
-        Assert.assertEquals(res.length(), expectedLen, "String length");
+        assertEquals(res.length(), expectedLen, "String length");
 
         if (expected.length > 1) {
             // check prefix and suffix is present for each hex pair
@@ -304,17 +307,17 @@ public class HexFormatTest {
                 int valueChars = prefix.length() + 2 + suffix.length();
                 int offset = i * (valueChars + delimiter.length());
                 String value = res.substring(offset, offset + valueChars);
-                Assert.assertTrue(value.startsWith(prefix), "wrong prefix");
-                Assert.assertTrue(value.endsWith(suffix), "wrong suffix");
+                assertTrue(value.startsWith(prefix), "wrong prefix");
+                assertTrue(value.endsWith(suffix), "wrong suffix");
 
                 // Check case of digits
                 String cc = value.substring(prefix.length(), prefix.length() + 2);
-                Assert.assertEquals(cc,
+                assertEquals(cc,
                         (uppercase) ? cc.toUpperCase(Locale.ROOT) : cc.toLowerCase(Locale.ROOT),
                         "Case mismatch");
                 if (i < expected.length - 1 && !delimiter.isEmpty()) {
                     // Check the delimiter is present for each pair except the last
-                    Assert.assertEquals(res.substring(offset + valueChars,
+                    assertEquals(res.substring(offset + valueChars,
                             offset + valueChars + delimiter.length()), delimiter);
                 }
             }
@@ -331,7 +334,7 @@ public class HexFormatTest {
         byte[] actual = hex.parseHex(s);
         System.out.println("    parsed as: " + Arrays.toString(expected));
         int mismatch = Arrays.mismatch(expected, actual);
-        Assert.assertEquals(actual, expected, "encode/decode cycle failed, mismatch: " + mismatch);
+        assertEquals(actual, expected, "encode/decode cycle failed, mismatch: " + mismatch);
     }
 
     @Test(dataProvider="HexFormattersParsers")
@@ -345,7 +348,7 @@ public class HexFormatTest {
         byte[] actual = hex.parseHex(chars, 0, chars.length);
         System.out.println("    parsed as: " + Arrays.toString(expected));
         int mismatch = Arrays.mismatch(expected, actual);
-        Assert.assertEquals(actual, expected, "format/parse cycle failed, mismatch: " + mismatch);
+        assertEquals(actual, expected, "format/parse cycle failed, mismatch: " + mismatch);
     }
 
     @Test(dataProvider="HexFormattersParsers")
@@ -356,7 +359,7 @@ public class HexFormatTest {
                 "uppercase: %s, delimiter: \"%s\", prefix: \"%s\", suffix: \"%s\"",
                 uppercase, escapeNL(delimiter), escapeNL(prefix), escapeNL(suffix));
         System.out.println("    hex: " + actual);
-        Assert.assertEquals(actual, hex.toString(), "Formatter toString mismatch");
+        assertEquals(actual, hex.toString(), "Formatter toString mismatch");
     }
 
     private static String escapeNL(String string) {
@@ -375,9 +378,9 @@ public class HexFormatTest {
             long actual = hex.fromHexDigitsToLong(s, 0, digits);
             System.out.printf("    digits: %2d, formatted: \"%s\", parsed as: 0x%016xL%n",
                     digits, s, actual);
-            Assert.assertEquals(s, allHex.substring(16 - digits, 16));
+            assertEquals(s, allHex.substring(16 - digits, 16));
             long expected = (digits < 16) ? orig & ~(0xffffffffffffffffL << (4 * digits)) : orig;
-            Assert.assertEquals(actual, expected);
+            assertEquals(actual, expected);
         }
     }
 
@@ -400,8 +403,8 @@ public class HexFormatTest {
             int byteVal = hex.fromHexDigits(byteStr);
             assert(byteStr.equals("7f"));
             assert(b == byteVal);
-            Assert.assertTrue(byteStr.equals("7f"));
-            Assert.assertTrue(b == byteVal);
+            assertTrue(byteStr.equals("7f"));
+            assertTrue(b == byteVal);
 
 
             char c = 'A';
@@ -409,21 +412,21 @@ public class HexFormatTest {
             System.out.println("    " + charStr);
             int charVal = hex.fromHexDigits(charStr);
             assert(c == charVal);
-            Assert.assertTrue(c == charVal);
+            assertTrue(c == charVal);
 
             int i = 12345;
             String intStr = hex.toHexDigits(i);
             System.out.println("    " + intStr);
             int intVal = hex.fromHexDigits(intStr);
             assert(i == intVal);
-            Assert.assertTrue(i == intVal);
+            assertTrue(i == intVal);
 
             long l = Long.MAX_VALUE;
             String longStr = hex.toHexDigits(l, 16);
             long longVal = hex.fromHexDigitsToLong(longStr, 0, 16);
             System.out.println("    " + longStr + ", " + longVal);
             assert(l == longVal);
-            Assert.assertTrue(l == longVal);
+            assertTrue(l == longVal);
         }
 
         {
@@ -436,7 +439,7 @@ public class HexFormatTest {
             byte[] parsed = formatFingerprint.parseHex(str);
             System.out.println("    Parsed: " + Arrays.toString(parsed));
             assert(Arrays.equals(bytes, parsed));
-            Assert.assertTrue(Arrays.equals(bytes, parsed));
+            assertTrue(Arrays.equals(bytes, parsed));
         }
 
         {
@@ -449,7 +452,7 @@ public class HexFormatTest {
             byte[] parsed = commaFormat.parseHex(str);
             System.out.println("    Parsed: " + Arrays.toString(parsed));
             assert(Arrays.equals(bytes, parsed));
-            Assert.assertTrue(Arrays.equals(bytes, parsed));
+            assertTrue(Arrays.equals(bytes, parsed));
         }
         {
             // Text formatting
@@ -461,7 +464,7 @@ public class HexFormatTest {
             byte[] parsed = commaFormat.parseHex(str);
             System.out.println("    Parsed:    " + Arrays.toString(parsed));
             assert(Arrays.equals(bytes, parsed));
-            Assert.assertTrue(Arrays.equals(bytes, parsed));
+            assertTrue(Arrays.equals(bytes, parsed));
         }
     }
 }
