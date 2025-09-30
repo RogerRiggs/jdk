@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -472,12 +472,11 @@ final class ProcessImpl extends Process {
             // Quotation protects from interpretation of the [path] argument as
             // start of longer path with spaces. Quotation has no influence to
             // [.exe] extension heuristic.
-            boolean isShell = allowAmbiguousCommands ? isShellFile(executablePath)
-                    : !isExe(executablePath);
+            boolean isShell = !isExe(executablePath);
             cmdstr = createCommandLine(
                     // We need the extended verification procedures
                     isShell ? VERIFICATION_CMD_BAT
-                            : (allowAmbiguousCommands ? VERIFICATION_WIN32 : VERIFICATION_WIN32_SAFE),
+                            : VERIFICATION_WIN32_SAFE,
                     quoteString(executablePath),
                     cmd);
         }
