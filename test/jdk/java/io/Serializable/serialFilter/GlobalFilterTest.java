@@ -155,7 +155,7 @@ public class GlobalFilterTest {
      * @param pattern a pattern extracted from the configured global pattern
      */
     @Test(dataProvider = "globalPatternElements")
-    static void globalFilterElements(String pattern, boolean allowed,Object obj) {
+    static void globalFilterElements(String pattern, boolean allowed, Object obj) {
         testGlobalPattern(pattern, obj, allowed);
     }
 
