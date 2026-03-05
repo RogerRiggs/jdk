@@ -524,7 +524,8 @@ childProcess(void *arg)
      * yields EOF when the write ends (we have two of them!) are closed.
      */
     {
-        int errnum = errno + (why * 100000);        // readable by human in decimal
+        fprintf(stderr, "pdir: %s: %d\n", p->pdir, why);
+        int errnum = errno;
         writeFully(fail_pipe_fd, &errnum, sizeof(errnum));
     }
     close(fail_pipe_fd);
