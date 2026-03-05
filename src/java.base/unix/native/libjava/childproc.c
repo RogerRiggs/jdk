@@ -392,6 +392,7 @@ childProcess(void *arg)
 {
     const ChildStuff* p = (const ChildStuff*) arg;
     int fail_pipe_fd = -1;
+    int why = 0;
 
     if (p->mode == MODE_POSIX_SPAWN) {
         /* POSIX_SPAWN:
@@ -401,6 +402,7 @@ childProcess(void *arg)
 
         /* Child shall signal aliveness to parent at the very first moment. */
         if (p->sendAlivePing && !sendAlivePing(fail_pipe_fd)) {
+            why = 2;
             goto WhyCantJohnnyExec;
         }
 
@@ -417,6 +419,7 @@ childProcess(void *arg)
 
         /* Child shall signal aliveness to parent at the very first moment. */
         if (p->sendAlivePing && !sendAlivePing(fail_pipe_fd)) {
+            why = 3;
             goto WhyCantJohnnyExec;
         }
 
@@ -432,29 +435,39 @@ childProcess(void *arg)
             (closeSafely(p->err[0])  == -1) ||
             (closeSafely(p->childenv[0])  == -1) ||
             (closeSafely(p->childenv[1])  == -1) ||
-            (closeSafely(p->fail[0]) == -1))
+            (closeSafely(p->fail[0]) == -1)) {
+            why = 4;
             goto WhyCantJohnnyExec;
+        }
 
         /* Give the child sides of the pipes the right fileno's. */
         /* Note: it is possible for in[0] == 0 */
         if ((moveDescriptor(p->in[0] != -1 ?  p->in[0] : p->fds[0],
                             STDIN_FILENO) == -1) ||
             (moveDescriptor(p->out[1]!= -1 ? p->out[1] : p->fds[1],
-                            STDOUT_FILENO) == -1))
+                            STDOUT_FILENO) == -1)) {
+            why = 5;
             goto WhyCantJohnnyExec;
+        }
 
         if (p->redirectErrorStream) {
             if ((closeSafely(p->err[1]) == -1) ||
-                (restartableDup2(STDOUT_FILENO, STDERR_FILENO) == -1))
+                (restartableDup2(STDOUT_FILENO, STDERR_FILENO) == -1)) {
+                why = 6;
                 goto WhyCantJohnnyExec;
+            }
         } else {
             if (moveDescriptor(p->err[1] != -1 ? p->err[1] : p->fds[2],
-                               STDERR_FILENO) == -1)
+                               STDERR_FILENO) == -1) {
+                why = 7;
                 goto WhyCantJohnnyExec;
+            }
         }
 
-        if (moveDescriptor(fail_pipe_fd, FAIL_FILENO) == -1)
+        if (moveDescriptor(fail_pipe_fd, FAIL_FILENO) == -1) {
+            why = 8;
             goto WhyCantJohnnyExec;
+        }
 
         /* We moved the fail pipe fd */
         fail_pipe_fd = FAIL_FILENO;
@@ -472,13 +485,17 @@ childProcess(void *arg)
         int max_fd = (int)sysconf(_SC_OPEN_MAX);
         int fd;
         for (fd = STDERR_FILENO + 1; fd < max_fd; fd++)
-            if (markCloseOnExec(fd) == -1 && errno != EBADF)
+            if (markCloseOnExec(fd) == -1 && errno != EBADF) {
+                why = 9;
                 goto WhyCantJohnnyExec;
+            }
     }
 
     /* change to the new working directory */
-    if (p->pdir != NULL && chdir(p->pdir) < 0)
+    if (p->pdir != NULL && chdir(p->pdir) < 0) {
+        why = 10;
         goto WhyCantJohnnyExec;
+    }
 
     // Reset any mask signals from parent, but not in VFORK mode
     if (p->mode != MODE_VFORK) {
@@ -489,6 +506,7 @@ childProcess(void *arg)
 
     // Children should be started with default signal disposition for SIGPIPE
     if (signal(SIGPIPE, SIG_DFL) == SIG_ERR) {
+        why = 11;
         goto WhyCantJohnnyExec;
     }
 
@@ -506,7 +524,7 @@ childProcess(void *arg)
      * yields EOF when the write ends (we have two of them!) are closed.
      */
     {
-        int errnum = errno;
+        int errnum = errno + (why * 100000);        // readable by human in decimal
         writeFully(fail_pipe_fd, &errnum, sizeof(errnum));
     }
     close(fail_pipe_fd);
