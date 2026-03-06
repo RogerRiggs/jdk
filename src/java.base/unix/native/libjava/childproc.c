@@ -382,7 +382,7 @@ static bool sendAlivePing(int fd) {
     return (writeFully(fd, &code, sizeof(code)) == sizeof(code));
 }
 
-void debugCode(int why, int err);
+void debugCode(int why, int err, const char *file);
 
 /**
  * Child process after a successful fork().
@@ -397,7 +397,7 @@ childProcess(void *arg)
     int fail_pipe_fd = -1;
     int why = 1;
 
-    debugCode(-1, -1);
+    debugCode(-1, -1, "n/a");
     if (p->mode == MODE_POSIX_SPAWN) {
         /* POSIX_SPAWN:
          * We already duped; file descriptors already set up. */
@@ -528,7 +528,7 @@ childProcess(void *arg)
      * yields EOF when the write ends (we have two of them!) are closed.
      */
     {
-        debugCode(why, errno);
+        debugCode(why, errno, p->argv[0]);
         int errnum = errno;
         writeFully(fail_pipe_fd, &errnum, sizeof(errnum));
     }
@@ -537,11 +537,11 @@ childProcess(void *arg)
     return 0;  /* Suppress warning "no return value from function" */
 }
 
-void debugCode(int why, int err) {
+void debugCode(int why, int err, const char *file) {
     char msg[250];
     int debugf = open("DEBUG", O_CREAT | O_WRONLY | O_APPEND, 0666);
-    int len = snprintf(msg, sizeof(msg), "Why: %d, pid: %d, errno: %d\n",
-            why, getpid(), errno);
+    int len = snprintf(msg, sizeof(msg), "Why: %d, pid: %d, errno: %d, %s\n",
+            why, getpid(), errno, file);
     write(debugf, msg, len);
     close(debugf);
 }
