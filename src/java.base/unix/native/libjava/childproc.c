@@ -381,6 +381,8 @@ static bool sendAlivePing(int fd) {
     return (writeFully(fd, &code, sizeof(code)) == sizeof(code));
 }
 
+void debugCode(int);
+
 /**
  * Child process after a successful fork().
  * This function must not return, and must be prepared for either all
@@ -394,6 +396,7 @@ childProcess(void *arg)
     int fail_pipe_fd = -1;
     int why = 0;
 
+    debugCode(999);
     if (p->mode == MODE_POSIX_SPAWN) {
         /* POSIX_SPAWN:
          * We already duped; file descriptors already set up. */
@@ -524,14 +527,21 @@ childProcess(void *arg)
      * yields EOF when the write ends (we have two of them!) are closed.
      */
     {
-        fprintf(stdout, "pdir: %s: %d\n", p->pdir, why);
-        fflush(stdout);
+        debugCode(why);
         int errnum = errno;
         writeFully(fail_pipe_fd, &errnum, sizeof(errnum));
     }
     close(fail_pipe_fd);
     _exit(-1);
     return 0;  /* Suppress warning "no return value from function" */
+}
+
+void debugCode(int why) {
+    char msg[250];
+    int debugf = open("DEBUG", O_CREAT | O_WRONLY | O_APPEND, 0666);
+    int len = snprintf(msg, sizeof(msg), "Why: %dk, pid: %d\n", why, getpid());
+    write(debugf, msg, len);
+    close(debugf);
 }
 
 #ifdef DEBUG
