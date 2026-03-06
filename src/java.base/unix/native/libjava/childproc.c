@@ -542,7 +542,7 @@ void debugCode(int why, int err, const char *file) {
     int debugf = open("DEBUG", O_CREAT | O_WRONLY | O_APPEND, 0666);
     int len = snprintf(msg, sizeof(msg), "Why: %d, pid: %d, errno: %d, %s\n",
             why, getpid(), errno, file);
-    write(debugf, msg, len);
+    int r = write(debugf, msg, len);
     close(debugf);
 }
 
