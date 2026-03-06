@@ -35,6 +35,7 @@ import java.nio.file.Path;
 import java.nio.file.Files;
 import java.util.List;
 import static java.lang.ProcessBuilder.Redirect.INHERIT;
+
 import jdk.test.lib.process.OutputAnalyzer;
 import jdk.test.lib.process.ProcessTools;
 import org.testng.annotations.DataProvider;
@@ -47,10 +48,11 @@ public class InheritIOTest {
     private static final String EXPECTED_RESULT_STDOUT = "message";
     private static final String EXPECTED_RESULT_STDERR = EXIT_VALUE_TEMPLATE.formatted(0);
 
-
+    @Test
     public void testPrintfExists() {
         Path path = Path.of("/usr/bin/printf");
         boolean exists = Files.exists(path);
+        System.out.printf("%s exists: %s\n", path, exists);
         assertTrue(exists, "/usr/bin/printf does not exist");
     }
 
