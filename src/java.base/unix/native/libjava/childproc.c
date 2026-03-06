@@ -397,7 +397,7 @@ childProcess(void *arg)
     int fail_pipe_fd = -1;
     int why = 1;
 
-    debugCode(-1, -1, "n/a");
+    debugCode(-1, -1, p->argv[0]);
     if (p->mode == MODE_POSIX_SPAWN) {
         /* POSIX_SPAWN:
          * We already duped; file descriptors already set up. */
