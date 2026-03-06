@@ -300,19 +300,19 @@ execve_with_shell_fallback(int mode, const char *file,
  * JDK_execvpe is identical to execvp, except that the child environment is
  * specified via the 3rd argument instead of being inherited from environ.
  */
-static void
+static int
 JDK_execvpe(int mode, const char *file,
             const char *argv[],
             const char *const envp[])
 {
     if (envp == NULL || (char **) envp == environ) {
         execvp(file, (char **) argv);
-        return;
+        return 100;
     }
 
     if (*file == '\0') {
         errno = ENOENT;
-        return;
+        return 101;
     }
 
     if (strchr(file, '/') != NULL) {
@@ -368,12 +368,13 @@ JDK_execvpe(int mode, const char *file,
 #endif
                 break; /* Try other directories in PATH */
             default:
-                return;
+                return 102;
             }
         }
         if (sticky_errno != 0)
             errno = sticky_errno;
     }
+    return 103;
 }
 
 static bool sendAlivePing(int fd) {
@@ -381,7 +382,7 @@ static bool sendAlivePing(int fd) {
     return (writeFully(fd, &code, sizeof(code)) == sizeof(code));
 }
 
-void debugCode(int);
+void debugCode(int why, int err);
 
 /**
  * Child process after a successful fork().
@@ -394,9 +395,9 @@ childProcess(void *arg)
 {
     const ChildStuff* p = (const ChildStuff*) arg;
     int fail_pipe_fd = -1;
-    int why = 0;
+    int why = 1;
 
-    debugCode(999);
+    debugCode(-1, -1);
     if (p->mode == MODE_POSIX_SPAWN) {
         /* POSIX_SPAWN:
          * We already duped; file descriptors already set up. */
@@ -513,7 +514,7 @@ childProcess(void *arg)
         goto WhyCantJohnnyExec;
     }
 
-    JDK_execvpe(p->mode, p->argv[0], p->argv, p->envv);
+    why = JDK_execvpe(p->mode, p->argv[0], p->argv, p->envv);
 
  WhyCantJohnnyExec:
     /* We used to go to an awful lot of trouble to predict whether the
@@ -527,7 +528,7 @@ childProcess(void *arg)
      * yields EOF when the write ends (we have two of them!) are closed.
      */
     {
-        debugCode(why);
+        debugCode(why, errno);
         int errnum = errno;
         writeFully(fail_pipe_fd, &errnum, sizeof(errnum));
     }
@@ -536,10 +537,11 @@ childProcess(void *arg)
     return 0;  /* Suppress warning "no return value from function" */
 }
 
-void debugCode(int why) {
+void debugCode(int why, int err) {
     char msg[250];
     int debugf = open("DEBUG", O_CREAT | O_WRONLY | O_APPEND, 0666);
-    int len = snprintf(msg, sizeof(msg), "Why: %dk, pid: %d\n", why, getpid());
+    int len = snprintf(msg, sizeof(msg), "Why: %d, pid: %d, errno: %d\n",
+            why, getpid(), errno);
     write(debugf, msg, len);
     close(debugf);
 }
