@@ -50,6 +50,8 @@ public class InheritIOTest {
 
     @Test
     public void testPrintfExists() {
+        if (System.getProperty("os.name").startsWith("Windows"))
+            return;
         Path path = Path.of("/usr/bin/printf");
         boolean exists = Files.exists(path);
         System.out.printf("%s exists: %s\n", path, exists);
