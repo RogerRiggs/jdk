@@ -57,7 +57,7 @@ public class ProcessReaperCCL {
         // Verify all "Process Reaper" threads have a null CCL
         for (Thread th : Thread.getAllStackTraces().keySet()) {
             if (th.getName().startsWith("process reaper")) {
-                Assertions.assertEquals(null, th.getContextClassLoader(), "CCL not null");
+                Assertions.assertNull(th.getContextClassLoader(), "CCL not null");
             }
         }
     }

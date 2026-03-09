@@ -52,7 +52,6 @@ import org.junit.jupiter.params.provider.MethodSource;
  * @run junit ReaderWriterTest
  */
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class ReaderWriterTest {
 
     static final String ASCII = "ASCII: \u0000_A-Z_a-Z_\u007C_\u007D_\u007E_\u007F_;";

@@ -204,7 +204,7 @@ public class OnExitTest extends ProcessUtil {
 
             Assertions.assertFalse(proc.isAlive(), "destroyed process is alive:: %s%n" + proc);
         } catch (IOException | InterruptedException ex) {
-            Assertions.fail(ex.getMessage());
+            Assertions.fail(ex.getMessage(), ex);
         } finally {
             if (procHandle != null) {
                 destroyProcessTree(procHandle);

@@ -440,7 +440,7 @@ public class TreeTest extends ProcessUtil {
                     subprocesses.stream().map(ProcessHandle::pid)
                     .collect(Collectors.toList()));
 
-            Assertions.assertEquals(                    factor, getChildren(p1Handle).size(), "expected direct children");
+            Assertions.assertEquals(factor, getChildren(p1Handle).size(), "expected direct children");
             count = getDescendants(p1Handle).size();
             long totalChildren = factor * factor * factor + factor * factor + factor;
             Assertions.assertTrue(count >= totalChildren,
